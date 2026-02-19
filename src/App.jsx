@@ -29,7 +29,7 @@ const NOT_OPEN_STATES = new Set(["TN","CT","MO"]);
 const DATA_AS_OF = "2025-02-19";
 
 const MAP_TOPOLOGY_URL = "https://cdn.jsdelivr.net/npm/us-atlas@3/states-10m.json";
-const FOUNTAIN_URL = "https://www.fountain.com";
+const FOUNTAIN_URL = "https://www.fountain.net";
 const SESSION_KEY = "provider-authority-map-session";
 
 // ── Colour palette for providers ─────────────────────────────────────────────
