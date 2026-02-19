@@ -29,6 +29,8 @@ const NOT_OPEN_STATES = new Set(["TN","CT","MO"]);
 const DATA_AS_OF = "2025-02-19";
 
 const MAP_TOPOLOGY_URL = "https://cdn.jsdelivr.net/npm/us-atlas@3/states-10m.json";
+const FOUNTAIN_URL = "https://www.fountain.com";
+const SESSION_KEY = "provider-authority-map-session";
 
 // ── Colour palette for providers ─────────────────────────────────────────────
 const PROVIDER_COLORS = [
@@ -143,9 +145,13 @@ function ProviderAuthorityMapInner() {
   const [clickedState, setClickedState] = useState(null);
   const [showHelp, setShowHelp] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [isDark, setIsDark] = useState(() => {
+    try { return localStorage.getItem("provider-authority-map-theme") === "dark"; } catch (_) { return false; }
+  });
   const detailPanelRef = useRef(null);
+  const detailPanelContainerRef = useRef(null);
 
-  // Filters (initialized from URL on mount)
+  // Filters (initialized from URL, then session, on mount)
   const [providerFilter, setProviderFilter] = useState([]);
   const [stateFilter, setStateFilter] = useState([]);
 
@@ -164,17 +170,54 @@ function ProviderAuthorityMapInner() {
       });
   }, []);
 
+  // Initialize filters from URL, then sessionStorage (session restores on refresh)
   useEffect(() => {
     const { providers, states } = parseFiltersFromUrl(window.location.search);
-    if (providers.length) {
-      const valid = providers.filter((p) => ALL_PROVIDERS.includes(p));
-      if (valid.length) setProviderFilter(valid);
-    }
-    if (states.length) {
-      const valid = states.filter((s) => ALL_STATES.includes(s));
-      if (valid.length) setStateFilter(valid);
+    const hasUrlParams = providers.length > 0 || states.length > 0;
+    if (hasUrlParams) {
+      if (providers.length) {
+        const valid = providers.filter((p) => ALL_PROVIDERS.includes(p));
+        if (valid.length) setProviderFilter(valid);
+      }
+      if (states.length) {
+        const valid = states.filter((s) => ALL_STATES.includes(s));
+        if (valid.length) setStateFilter(valid);
+      }
+    } else {
+      try {
+        const raw = sessionStorage.getItem(SESSION_KEY);
+        if (raw) {
+          const data = JSON.parse(raw);
+          if (Array.isArray(data.providerFilter)) {
+            const valid = data.providerFilter.filter((p) => ALL_PROVIDERS.includes(p));
+            if (valid.length) setProviderFilter(valid);
+          }
+          if (Array.isArray(data.stateFilter)) {
+            const valid = data.stateFilter.filter((s) => ALL_STATES.includes(s));
+            if (valid.length) setStateFilter(valid);
+          }
+          if (data.clickedState && ALL_STATES.includes(data.clickedState)) setClickedState(data.clickedState);
+          if (typeof data.searchQuery === "string") setSearchQuery(data.searchQuery);
+        }
+      } catch (_) {}
     }
   }, []);
+
+  // Persist filters and open state to sessionStorage
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(SESSION_KEY, JSON.stringify({
+        providerFilter,
+        stateFilter,
+        clickedState,
+        searchQuery,
+      }));
+    } catch (_) {}
+  }, [providerFilter, stateFilter, clickedState, searchQuery]);
+
+  useEffect(() => {
+    try { localStorage.setItem("provider-authority-map-theme", isDark ? "dark" : "light"); } catch (_) {}
+  }, [isDark]);
 
   useEffect(() => {
     loadTopology();
@@ -186,6 +229,13 @@ function ProviderAuthorityMapInner() {
     const newUrl = window.location.pathname + search + window.location.hash;
     if (window.history.replaceState) window.history.replaceState(null, "", newUrl);
   }, [providerFilter, stateFilter]);
+
+  // Scroll detail panel into view when opening a state
+  useEffect(() => {
+    if (clickedState && detailPanelContainerRef.current) {
+      detailPanelContainerRef.current.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+  }, [clickedState]);
 
   // Escape to close detail panel
   useEffect(() => {
@@ -277,8 +327,12 @@ function ProviderAuthorityMapInner() {
 
   const labelSt = {fontSize:11,color:"#475569",textTransform:"uppercase",letterSpacing:"0.1em"};
 
+  const theme = isDark
+    ? { bg: "#0f172a", card: "#1e293b", border: "#334155", text: "#e2e8f0", muted: "#94a3b8", link: "#93c5fd", inputBg: "#1e293b" }
+    : { bg: "#f8fafc", card: "#fff", border: "#cbd5e1", text: "#0f172a", muted: "#64748b", link: "#2563eb", inputBg: "#fff" };
+
   return (
-    <div style={{fontFamily:"'DM Mono','Courier New',monospace",background:"#f8fafc",minHeight:"100vh",color:"#0f172a",padding:24}}>
+    <div data-theme={isDark ? "dark" : "light"} style={{fontFamily:"'DM Mono','Courier New',monospace",background:theme.bg,minHeight:"100vh",color:theme.text,padding:24}}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Syne:wght@400;600;700;800&display=swap');
         *{box-sizing:border-box}
@@ -291,9 +345,12 @@ function ProviderAuthorityMapInner() {
           .stats-grid { grid-template-columns: 1fr !important; }
           .header-actions { flex-direction: column; align-items: flex-start !important; }
         }
+        .print-only { display: none; }
         @media print {
           .no-print { display: none !important; }
           body { background: #fff; }
+          .print-only { display: block !important; }
+          [data-print-footer] { position: fixed; bottom: 0; left: 0; right: 0; text-align: center; }
         }
       `}</style>
 
@@ -301,14 +358,14 @@ function ProviderAuthorityMapInner() {
       <div style={{ marginBottom: 20, display: "flex", flexWrap: "wrap", justifyContent: "space-between", alignItems: "flex-start", gap: 16 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
           {/* Fountain logo primary */}
-          <a href="/" style={{ display: "flex", alignItems: "center", gap: 10, textDecoration: "none", color: "inherit" }} aria-label="Fountain home">
-            <img src="/Fountain Logo Primary.png" alt="Fountain" width="40" height="40" style={{ display: "block" }} />
-            <span style={{ fontFamily: "'Syne',sans-serif", fontSize: 28, fontWeight: 800, color: "#0f172a", letterSpacing: "-0.03em" }}>Fountain</span>
+          <a href={FOUNTAIN_URL} target="_blank" rel="noopener noreferrer" style={{ display: "flex", alignItems: "center", gap: 10, textDecoration: "none", color: "inherit" }} aria-label="Fountain home (opens in new tab)">
+            <img src="/Fountain Logo Primary.png" alt="Fountain" style={{ height: 40, width: "auto", display: "block", objectFit: "contain" }} />
+            <span style={{ fontFamily: "'Syne',sans-serif", fontSize: 28, fontWeight: 800, color: theme.text, letterSpacing: "-0.03em" }}>Fountain</span>
           </a>
           <div style={{ borderLeft: "1px solid #cbd5e1", height: 32, marginRight: 4 }} />
           <div>
-            <div style={{ fontFamily: "'Syne',sans-serif", fontSize: 18, fontWeight: 600, color: "#0f172a", margin: 0 }}>Provider Authority Map</div>
-            <div style={{ fontSize: 12, color: "#475569", marginTop: 2 }}>
+            <div style={{ fontFamily: "'Syne',sans-serif", fontSize: 18, fontWeight: 600, color: theme.text, margin: 0 }}>Provider Authority Map</div>
+            <div style={{ fontSize: 12, color: theme.muted, marginTop: 2 }}>
               Data as of {new Date(DATA_AS_OF).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })} · {ALL_PROVIDERS.length} providers
             </div>
           </div>
@@ -319,30 +376,40 @@ function ProviderAuthorityMapInner() {
               const url = window.location.origin + window.location.pathname + buildFiltersSearch(providerFilter, stateFilter);
               navigator.clipboard?.writeText(url).then(() => {}).catch(() => {});
             }}
-            style={{ background: "#fff", border: "1px solid #2563eb", borderRadius: 6, color: "#2563eb", padding: "7px 12px", fontSize: 12, cursor: "pointer" }}
+            style={{ background: theme.card, border: `1px solid ${theme.link}`, borderRadius: 6, color: theme.link, padding: "7px 12px", fontSize: 12, cursor: "pointer" }}
             title="Copy link with current filters"
           >
             Copy link
           </button>
           <button
             onClick={() => {
+              const exportedAt = new Date().toISOString();
+              const exportNote = `"Exported on","${exportedAt}","",""\n`;
               const headers = "Provider,State,State Label,License\n";
               const rows = filtered.map((r) => `"${(r.provider || "").replace(/"/g, '""')}","${r.state}","${(r.stateLabel || "").replace(/"/g, '""')}","${(r.license || "").replace(/"/g, '""')}"`).join("\n");
-              const blob = new Blob([headers + rows], { type: "text/csv;charset=utf-8;" });
+              const blob = new Blob([exportNote + headers + rows], { type: "text/csv;charset=utf-8;" });
               const a = document.createElement("a");
               a.href = URL.createObjectURL(blob);
               a.download = `provider-authority-export-${new Date().toISOString().slice(0, 10)}.csv`;
               a.click();
               URL.revokeObjectURL(a.href);
             }}
-            style={{ background: "#fff", border: "1px solid #2563eb", borderRadius: 6, color: "#2563eb", padding: "7px 12px", fontSize: 12, cursor: "pointer" }}
+            style={{ background: theme.card, border: `1px solid ${theme.link}`, borderRadius: 6, color: theme.link, padding: "7px 12px", fontSize: 12, cursor: "pointer" }}
             title="Export current view as CSV"
           >
             Export CSV
           </button>
           <button
+            onClick={() => setIsDark((d) => !d)}
+            style={{ background: theme.card, border: `1px solid ${theme.border}`, borderRadius: 6, color: theme.text, padding: "7px 12px", fontSize: 12, cursor: "pointer" }}
+            title={isDark ? "Switch to light mode" : "Switch to dark mode"}
+            aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"}
+          >
+            {isDark ? "☀" : "☾"}
+          </button>
+          <button
             onClick={() => setShowHelp(true)}
-            style={{ background: "#fff", border: "1px solid #2563eb", borderRadius: 6, color: "#2563eb", padding: "7px 12px", fontSize: 14, cursor: "pointer", lineHeight: 1 }}
+            style={{ background: theme.card, border: `1px solid ${theme.link}`, borderRadius: 6, color: theme.link, padding: "7px 12px", fontSize: 14, cursor: "pointer", lineHeight: 1 }}
             title="How to use"
             aria-label="How to use this map"
           >
@@ -362,6 +429,7 @@ function ProviderAuthorityMapInner() {
               <li>Click the <strong>amber chip</strong> to highlight TN, CT, and MO (not open to new patients).</li>
               <li><strong>Click a state</strong> on the map to see license details.</li>
               <li>Use <strong>Copy link</strong> to share the current view; use <strong>Export CSV</strong> to download the filtered list.</li>
+              <li>Press <strong>Esc</strong> to close panels (state detail or this modal).</li>
             </ul>
             <button onClick={() => setShowHelp(false)} style={{ marginTop: 16, background: "#2563eb", border: "none", borderRadius: 6, color: "#fff", padding: "8px 16px", cursor: "pointer", fontSize: 13 }}>Close</button>
           </div>
@@ -383,7 +451,7 @@ function ProviderAuthorityMapInner() {
           {label:"States Covered", value: stats.statesCovered, color:"#2563eb"},
           {label:"Total Licenses", value: stats.totalLicenses, color:"#2563eb"},
         ].map(s=>(
-          <div key={s.label} style={{background:"#fff",border:"1px solid #cbd5e1",borderRadius:8,padding:"12px 16px"}}>
+          <div key={s.label} style={{background:theme.card,border:`1px solid ${theme.border}`,borderRadius:8,padding:"12px 16px"}}>
             <div style={{fontSize:22,fontWeight:500,color:s.color,fontFamily:"'Syne',sans-serif"}}>{s.value}</div>
             <div style={{fontSize:10,color:"#64748b",textTransform:"uppercase",letterSpacing:"0.1em",marginTop:4}}>{s.label}</div>
           </div>
@@ -398,7 +466,7 @@ function ProviderAuthorityMapInner() {
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           aria-label="Search providers or license numbers"
-          style={{ width: "100%", maxWidth: 320, background: "#fff", border: "1px solid #cbd5e1", borderRadius: 6, color: "#0f172a", padding: "8px 12px", fontSize: 13 }}
+          style={{ width: "100%", maxWidth: 320, background: theme.inputBg, border: `1px solid ${theme.border}`, borderRadius: 6, color: theme.text, padding: "8px 12px", fontSize: 13 }}
         />
       </div>
 
@@ -512,11 +580,18 @@ function ProviderAuthorityMapInner() {
       </div>
 
       {/* Map */}
-      <div role="region" aria-label="US states map" style={{ background: "#f1f5f9", borderRadius: 12, border: "1px solid #cbd5e1", overflow: "hidden", position: "relative" }}>
+      <div role="region" aria-label="US states map" style={{ background: isDark ? "#1e293b" : "#f1f5f9", borderRadius: 12, border: `1px solid ${theme.border}`, overflow: "hidden", position: "relative" }}>
         {loading ? (
-          <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:400,color:"#64748b",flexDirection:"column",gap:12}}>
-            <div style={{fontSize:28}}>🌐</div>
-            <div style={{fontSize:13}}>Loading geographic data...</div>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:400,background:"#e2e8f0",position:"relative",overflow:"hidden"}} aria-busy="true" aria-label="Loading map">
+            <svg width="100%" viewBox="0 0 960 560" style={{display:"block",opacity:0.6}}>
+              <rect width={960} height={560} fill="#cbd5e1"/>
+              {/* Simplified US outline skeleton */}
+              <path d="M200 120 L400 80 L700 100 L850 180 L820 400 L600 480 L350 500 L120 400 Z" fill="#94a3b8" opacity={0.8}/>
+              <path d="M250 200 L500 180 L750 220 L750 350 L500 400 L250 380 Z" fill="#94a3b8" opacity={0.6}/>
+              <path d="M300 280 L450 260 L550 320 L450 420 L300 400 Z" fill="#94a3b8" opacity={0.5}/>
+            </svg>
+            <div style={{position:"absolute",bottom:16,left:0,right:0,textAlign:"center",fontSize:12,color:"#64748b"}}>Loading map…</div>
+            <style>{`.map-skeleton-pulse { animation: mapSkeletonPulse 1.5s ease-in-out infinite; } @keyframes mapSkeletonPulse { 0%,100% { opacity: 0.6; } 50% { opacity: 0.9; } }`}</style>
           </div>
         ) : mapLoadError ? (
           <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: 400, color: "#475569", flexDirection: "column", gap: 16 }}>
@@ -547,7 +622,7 @@ function ProviderAuthorityMapInner() {
                   strokeWidth={isClicked?2.5:0.7}
                   opacity={opacity}
                   style={{cursor:"pointer"}}
-                  onClick={()=>setClickedState(isClicked?null:st)}
+                  onClick={()=>{ setClickedState(isClicked?null:st); }}
                   onMouseEnter={e=>{
                     const svg=e.target.closest("svg");
                     const rect=svg.getBoundingClientRect();
@@ -637,7 +712,7 @@ function ProviderAuthorityMapInner() {
 
       {/* Clicked state detail */}
       {clickedState && (
-        <div style={{marginTop:12,background:"#fff",border:`1px solid ${NOT_OPEN_STATES.has(clickedState)?"#fcd34d":INACTIVE_STATES.has(clickedState)?"#a5b4fc":"#cbd5e1"}`,borderRadius:10,overflow:"hidden"}}>
+        <div ref={detailPanelContainerRef} style={{marginTop:12,background:"#fff",border:`1px solid ${NOT_OPEN_STATES.has(clickedState)?"#fcd34d":INACTIVE_STATES.has(clickedState)?"#a5b4fc":"#cbd5e1"}`,borderRadius:10,overflow:"hidden"}}>
           <div style={{padding:"14px 20px",borderBottom:`1px solid ${NOT_OPEN_STATES.has(clickedState)?"#fef3c7":INACTIVE_STATES.has(clickedState)?"#eef2ff":"#e2e8f0"}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
             <div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
               <span style={{fontFamily:"'Syne',sans-serif",fontWeight:700,fontSize:16}}>{STATE_NAMES[clickedState]}</span>
@@ -747,9 +822,22 @@ function ProviderAuthorityMapInner() {
       )}
 
       {/* Footer */}
-      <footer style={{ marginTop: 32, paddingTop: 16, borderTop: "1px solid #e2e8f0", fontSize: 11, color: "#64748b" }}>
-        Data as of {new Date(DATA_AS_OF).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })} · Fountain
+      <footer style={{ marginTop: 32, paddingTop: 16, borderTop: `1px solid ${theme.border}`, fontSize: 11, color: theme.muted }}>
+        <div>License data last updated: {new Date(DATA_AS_OF).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}.</div>
+        <div style={{ marginTop: 4 }}>Licensing status is subject to change; verify with compliance. For internal use only.</div>
+        <div style={{ marginTop: 8 }}>
+          <a href={FOUNTAIN_URL} target="_blank" rel="noopener noreferrer" style={{ color: theme.link, textDecoration: "none" }}>Fountain</a>
+          {" · "}
+          <a href="mailto:support@fountain.com?subject=Provider%20Authority%20Map%20feedback" style={{ color: theme.link, textDecoration: "none" }}>Report an issue</a>
+        </div>
       </footer>
+
+      {/* Print-only footer */}
+      <div className="print-only" style={{ display: "none" }} aria-hidden="true">
+        <div data-print-footer style={{ fontSize: 10, color: "#64748b", padding: "8px 0" }}>
+          Printed on {new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit" })} · Provider Authority Map
+        </div>
+      </div>
     </div>
   );
 }
