@@ -302,10 +302,7 @@ function ProviderAuthorityMapInner() {
         <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
           {/* Fountain logo primary */}
           <a href="/" style={{ display: "flex", alignItems: "center", gap: 10, textDecoration: "none", color: "inherit" }} aria-label="Fountain home">
-            <svg width="40" height="40" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-              <path d="M20 6c-2 4-6 8-6 14 0 4 2.5 7 6 7s6-3 6-7c0-6-4-10-6-14z" fill="#2563eb"/>
-              <path d="M20 27v7M16 34h8" stroke="#2563eb" strokeWidth="1.5" strokeLinecap="round"/>
-            </svg>
+            <img src="/Fountain Logo Primary.png" alt="Fountain" width="40" height="40" style={{ display: "block" }} />
             <span style={{ fontFamily: "'Syne',sans-serif", fontSize: 28, fontWeight: 800, color: "#0f172a", letterSpacing: "-0.03em" }}>Fountain</span>
           </a>
           <div style={{ borderLeft: "1px solid #cbd5e1", height: 32, marginRight: 4 }} />
